@@ -537,13 +537,10 @@ class AnkiWrapper:
 
     def can_add_notes(self, notes: list[JsonObject]) -> list[bool]:
         return [
-            bool(item.get("canAdd", False))
-            for item in self.can_add_notes_with_error_detail(notes)
+            bool(item.get("canAdd", False)) for item in self.can_add_notes_with_error_detail(notes)
         ]
 
-    def can_add_notes_with_error_detail(
-        self, notes: list[JsonObject]
-    ) -> list[JsonObject]:
+    def can_add_notes_with_error_detail(self, notes: list[JsonObject]) -> list[JsonObject]:
         return [self.can_add_note_with_error_detail(note) for note in notes]
 
     def can_add_note_with_error_detail(self, note: JsonObject) -> JsonObject:

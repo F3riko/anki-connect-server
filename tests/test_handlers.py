@@ -323,7 +323,9 @@ class TestNoteHandlers:
         result = await handle_can_add_notes_with_error_detail(
             anki_wrapper, AddNotesParams(notes=[_note(front="DupeNote")])
         )
-        assert result == [{"canAdd": False, "error": "cannot create note because it is a duplicate"}]
+        assert result == [
+            {"canAdd": False, "error": "cannot create note because it is a duplicate"}
+        ]
 
         # canAddNotes should also return False
         bool_result = await handle_can_add_notes(
@@ -420,7 +422,10 @@ class TestNoteHandlers:
         # Checking Parent with checkChildren=False -> not duplicate
         parent_no_children: NoteInput = {
             **_note(deck="Parent", front="ChildWord"),
-            "options": {"duplicateScope": "deck", "duplicateScopeOptions": {"checkChildren": False}},
+            "options": {
+                "duplicateScope": "deck",
+                "duplicateScopeOptions": {"checkChildren": False},
+            },
         }
         res_no_children = await handle_can_add_notes_with_error_detail(
             anki_wrapper, AddNotesParams(notes=[parent_no_children])
@@ -479,17 +484,25 @@ class TestNoteHandlers:
         res1 = await handle_can_add_notes_with_error_detail(
             anki_wrapper, AddNotesParams(notes=[note_bad_allow_dupe])
         )
-        assert res1 == [{"canAdd": False, "error": 'option parameter "allowDuplicate" must be boolean'}]
+        assert res1 == [
+            {"canAdd": False, "error": 'option parameter "allowDuplicate" must be boolean'}
+        ]
 
         note_bad_children: NoteInput = {
             **_note(),
-            "options": {"duplicateScope": "deck", "duplicateScopeOptions": {"checkChildren": "yes"}},  # type: ignore[typeddict-item]
+            "options": {
+                "duplicateScope": "deck",
+                "duplicateScopeOptions": {"checkChildren": "yes"},
+            },  # type: ignore[typeddict-item]
         }
         res2 = await handle_can_add_notes_with_error_detail(
             anki_wrapper, AddNotesParams(notes=[note_bad_children])
         )
         assert res2 == [
-            {"canAdd": False, "error": 'option parameter "duplicateScopeOptions.checkChildren" must be boolean'}
+            {
+                "canAdd": False,
+                "error": 'option parameter "duplicateScopeOptions.checkChildren" must be boolean',
+            }
         ]
 
         note_bad_models: NoteInput = {
@@ -500,7 +513,10 @@ class TestNoteHandlers:
             anki_wrapper, AddNotesParams(notes=[note_bad_models])
         )
         assert res3 == [
-            {"canAdd": False, "error": 'option parameter "duplicateScopeOptions.checkAllModels" must be boolean'}
+            {
+                "canAdd": False,
+                "error": 'option parameter "duplicateScopeOptions.checkAllModels" must be boolean',
+            }
         ]
 
     @pytest.mark.asyncio
