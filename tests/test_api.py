@@ -1,9 +1,16 @@
-"""Integration tests for the FastAPI server."""
+from unittest.mock import MagicMock
 
 import pytest
+from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 
 from anki_connect_server.api import app
+from anki_connect_server.sync import (
+    CollectionSyncOutcome,
+    CollectionSyncResult,
+    MediaSyncResult,
+    SyncResult,
+)
 
 
 @pytest.fixture
@@ -486,3 +493,251 @@ async def test_app_lifespan_handles_shutdown_when_wrapper_missing(monkeypatch):
 
     # State was never set; the finally does not raise.
     assert getattr(app.state, "anki_wrapper", None) is None
+
+
+@pytest.fixture
+def mock_sync_wrapper():
+    """Attach a mock AnkiWrapper returning typed SyncResult and MediaSyncResult."""
+    wrapper = MagicMock()
+    wrapper.sync_to_ankiweb.return_value = SyncResult(
+        status="completed",
+        collection=CollectionSyncResult(
+            outcome=CollectionSyncOutcome.NO_CHANGES,
+            download_reason=None,
+            local_data_replaced=False,
+        ),
+        media=MediaSyncResult(
+            outcome="completed",
+            checked="Checked:0",
+            added="Added:0up0down",
+            removed="Removed:0up0down",
+        ),
+        server_message=None,
+    )
+    wrapper.sync_media_only.return_value = MediaSyncResult(
+        outcome="completed",
+        checked="Checked:0",
+        added="Added:0up0down",
+        removed="Removed:0up0down",
+    )
+    app.state.anki_wrapper = wrapper
+    yield wrapper
+    app.state.anki_wrapper = None
+
+
+def test_sync_action_wire_serialization_root_and_api(mock_sync_wrapper):
+    """Test / and /api sync with typed mocked wrapper output returns a JSON object."""
+    client = TestClient(app)
+    expected_sync = {
+        "status": "completed",
+        "collection": {
+            "outcome": "no_changes",
+            "download_reason": None,
+            "local_data_replaced": False,
+        },
+        "media": {
+            "outcome": "completed",
+            "checked": "Checked:0",
+            "added": "Added:0up0down",
+            "removed": "Removed:0up0down",
+        },
+        "server_message": None,
+    }
+
+    # POST / with version 6
+    resp_root = client.post("/", json={"action": "sync", "version": 6})
+    assert resp_root.status_code == 200
+    data_root = resp_root.json()
+    assert isinstance(data_root["result"], dict)
+    assert data_root == {"result": expected_sync, "error": None}
+
+    # POST /api with version 6
+    resp_api = client.post("/api", json={"action": "sync", "version": 6})
+    assert resp_api.status_code == 200
+    data_api = resp_api.json()
+    assert isinstance(data_api["result"], dict)
+    assert data_api == {"result": expected_sync, "error": None}
+
+
+def test_sync_media_action_wire_serialization_root_and_api(mock_sync_wrapper):
+    """Test / and /api syncMedia with typed mocked wrapper output returns a JSON object."""
+    client = TestClient(app)
+    expected_media = {
+        "outcome": "completed",
+        "checked": "Checked:0",
+        "added": "Added:0up0down",
+        "removed": "Removed:0up0down",
+    }
+
+    # POST / with version 6
+    resp_root = client.post("/", json={"action": "syncMedia", "version": 6})
+    assert resp_root.status_code == 200
+    data_root = resp_root.json()
+    assert isinstance(data_root["result"], dict)
+    assert data_root == {"result": expected_media, "error": None}
+
+    # POST /api with version 6
+    resp_api = client.post("/api", json={"action": "syncMedia", "version": 6})
+    assert resp_api.status_code == 200
+    data_api = resp_api.json()
+    assert isinstance(data_api["result"], dict)
+    assert data_api == {"result": expected_media, "error": None}
+
+
+def test_multi_action_nested_wire_serialization(mock_sync_wrapper):
+    """Test multi and nested multi actions serialize nested Pydantic models as JSON objects."""
+    client = TestClient(app)
+    expected_sync = {
+        "status": "completed",
+        "collection": {
+            "outcome": "no_changes",
+            "download_reason": None,
+            "local_data_replaced": False,
+        },
+        "media": {
+            "outcome": "completed",
+            "checked": "Checked:0",
+            "added": "Added:0up0down",
+            "removed": "Removed:0up0down",
+        },
+        "server_message": None,
+    }
+    expected_media = {
+        "outcome": "completed",
+        "checked": "Checked:0",
+        "added": "Added:0up0down",
+        "removed": "Removed:0up0down",
+    }
+
+    # Batch multi containing syncMedia and sync
+    resp = client.post(
+        "/api",
+        json={
+            "action": "multi",
+            "version": 6,
+            "params": {"actions": [{"action": "syncMedia"}, {"action": "sync"}]},
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert isinstance(data["result"], list)
+    assert isinstance(data["result"][0], dict)
+    assert isinstance(data["result"][1], dict)
+    assert data == {"result": [expected_media, expected_sync], "error": None}
+
+    # Nested multi (multi inside multi)
+    resp_nested = client.post(
+        "/",
+        json={
+            "action": "multi",
+            "version": 6,
+            "params": {
+                "actions": [
+                    {
+                        "action": "multi",
+                        "params": {"actions": [{"action": "sync"}]},
+                    }
+                ]
+            },
+        },
+    )
+    assert resp_nested.status_code == 200
+    data_nested = resp_nested.json()
+    assert isinstance(data_nested["result"], list)
+    assert isinstance(data_nested["result"][0], list)
+    assert isinstance(data_nested["result"][0][0], dict)
+    assert data_nested == {"result": [[expected_sync]], "error": None}
+
+
+def test_legacy_v4_bare_object_serialization(mock_sync_wrapper):
+    """Test legacy version <= 4 requests return bare JSON objects, not envelopes or pair lists."""
+    client = TestClient(app)
+    expected_sync = {
+        "status": "completed",
+        "collection": {
+            "outcome": "no_changes",
+            "download_reason": None,
+            "local_data_replaced": False,
+        },
+        "media": {
+            "outcome": "completed",
+            "checked": "Checked:0",
+            "added": "Added:0up0down",
+            "removed": "Removed:0up0down",
+        },
+        "server_message": None,
+    }
+    expected_media = {
+        "outcome": "completed",
+        "checked": "Checked:0",
+        "added": "Added:0up0down",
+        "removed": "Removed:0up0down",
+    }
+
+    # POST / with explicit version 4
+    resp_v4_root = client.post("/", json={"action": "sync", "version": 4})
+    assert resp_v4_root.status_code == 200
+    data_v4_root = resp_v4_root.json()
+    assert isinstance(data_v4_root, dict)
+    assert data_v4_root == expected_sync
+
+    # POST /api with explicit version 4
+    resp_v4_api = client.post("/api", json={"action": "sync", "version": 4})
+    assert resp_v4_api.status_code == 200
+    data_v4_api = resp_v4_api.json()
+    assert isinstance(data_v4_api, dict)
+    assert data_v4_api == expected_sync
+
+    # Missing version defaults to 4
+    resp_default = client.post("/api", json={"action": "syncMedia"})
+    assert resp_default.status_code == 200
+    data_default = resp_default.json()
+    assert isinstance(data_default, dict)
+    assert data_default == expected_media
+
+
+def test_error_envelopes_unchanged_over_http(mock_sync_wrapper):
+    """Test error envelopes remain unchanged across versions and endpoints."""
+    client = TestClient(app)
+
+    # Unknown action at version 6 returns error envelope
+    resp_v6 = client.post("/", json={"action": "noSuchAction", "version": 6})
+    assert resp_v6.status_code == 200
+    data_v6 = resp_v6.json()
+    assert data_v6 == {"result": None, "error": "Unsupported action: noSuchAction"}
+
+    # Unknown action at legacy version 4 returns error envelope
+    resp_v4 = client.post("/", json={"action": "noSuchAction", "version": 4})
+    assert resp_v4.status_code == 200
+    data_v4 = resp_v4.json()
+    assert data_v4 == {"result": None, "error": "Unsupported action: noSuchAction"}
+
+    # Validation error at version 6 returns error envelope
+    resp_val_v6 = client.post("/api", json={"action": "findNotes", "version": 6, "params": {}})
+    assert resp_val_v6.status_code == 200
+    data_val_v6 = resp_val_v6.json()
+    assert data_val_v6["result"] is None
+    assert "query" in data_val_v6["error"]
+
+    # Validation error at version 4 returns error envelope
+    resp_val_v4 = client.post("/api", json={"action": "findNotes", "version": 4, "params": {}})
+    assert resp_val_v4.status_code == 200
+    data_val_v4 = resp_val_v4.json()
+    assert data_val_v4["result"] is None
+    assert "query" in data_val_v4["error"]
+
+    # Unknown action inside multi batch returns error string per-action
+    resp_multi_err = client.post(
+        "/api",
+        json={
+            "action": "multi",
+            "version": 6,
+            "params": {"actions": [{"action": "unknownSubAction"}]},
+        },
+    )
+    assert resp_multi_err.status_code == 200
+    data_multi_err = resp_multi_err.json()
+    assert data_multi_err == {
+        "result": [{"error": "Unknown action: unknownSubAction"}],
+        "error": None,
+    }

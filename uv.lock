@@ -38,7 +38,7 @@ wheels = [
 
 [[package]]
 name = "anki-connect-server"
-version = "0.4.0+safe.1"
+version = "0.4.0+safe.2"
 source = { editable = "." }
 dependencies = [
     { name = "anki" },

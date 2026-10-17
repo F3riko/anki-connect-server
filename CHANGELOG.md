@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0+safe.2] - 2026-10-17
+
+### Fixed
+- **Wire JSON Serialization for Pydantic Models**:
+  - Convert `BaseModel` instances to JSON-compatible dictionaries at the shared `dispatch` boundary (`dispatch` and `handle_multi`) using `model_dump(mode="json")`.
+  - Fixes wire response serialization where FastAPI `JsonValue` return annotation serialized nested Pydantic models (such as `SyncResult` and `MediaSyncResult`) as iterable `[key, value]` pairs instead of JSON objects.
+  - Preserves typed return values for direct wrapper and FastMCP callers.
+
 ## [0.4.0+safe.1] - 2026-10-17
 
 ### Fixed
