@@ -16,7 +16,7 @@ wheels = [
 
 [[package]]
 name = "anki"
-version = "26.8"
+version = "26.9.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "decorator" },
@@ -28,12 +28,12 @@ dependencies = [
     { name = "typing-extensions" },
 ]
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e3/d2/4d0c0510470019d687c8ffb61a72583d5dbcac5317ead258a01ac71ca3f4/anki-26.8-cp310-abi3-macosx_12_0_arm64.whl", hash = "sha256:40e3aadfbd86c7c6844d6cc1e22d4d6ab5cd3f8a8630f5beaf381ac1e4c0101a", size = 9331559, upload-time = "2026-08-01T06:26:47.128Z" },
-    { url = "https://files.pythonhosted.org/packages/11/be/df806327ae215193a8c81f63e7328d343503581fc6c44c5b7b1448c33979/anki-26.8-cp310-abi3-macosx_12_0_x86_64.whl", hash = "sha256:51d57138336d0f4c34bb5d6f86534a87ce99521ff1ae6a81fa5fba9a406d4ebd", size = 9793927, upload-time = "2026-08-01T06:26:50.082Z" },
-    { url = "https://files.pythonhosted.org/packages/65/d5/49d20c2c4347be5bd22d553ee83b52e0a199971b7f189e835086b6d6d8cb/anki-26.8-cp310-abi3-manylinux_2_35_aarch64.whl", hash = "sha256:8f38833a0504f0d02d5bc42bd4d55180eb1ac65dfd281bbb20d956e66386ac9f", size = 10642096, upload-time = "2026-08-01T06:26:52.362Z" },
-    { url = "https://files.pythonhosted.org/packages/d2/49/afb65908e064991794d96ff55ed4644de44fb7a42f26962ca78b2ea94962/anki-26.8-cp310-abi3-manylinux_2_35_x86_64.whl", hash = "sha256:4cfc1a8969b8b4229896c661b2b1923feb41f19425d5a0f4923485997b7441f5", size = 10953139, upload-time = "2026-08-01T06:26:54.77Z" },
-    { url = "https://files.pythonhosted.org/packages/45/0f/cae15b913be80ae313541621a9c27dc33e72b6af2fde1ebf64360a1eeb50/anki-26.8-cp310-abi3-win_amd64.whl", hash = "sha256:d2b6f96e0c42dd7cfde0ed04dcbc64480ee1ebb5b041c078ad2a257becd4269e", size = 9584399, upload-time = "2026-08-01T06:26:57.663Z" },
-    { url = "https://files.pythonhosted.org/packages/cb/e6/9f8e8c4ec41d87a86ccb8c5e226c8c46e29da710536e381b28ed701d5ea3/anki-26.8-cp310-abi3-win_arm64.whl", hash = "sha256:aafb8895e5928cad54142f88561902d313fd4e4a17f630e680f2645598860904", size = 9042192, upload-time = "2026-08-01T06:27:00.003Z" },
+    { url = "https://files.pythonhosted.org/packages/61/68/f19a0d856ce98709b7069d1816fb6c2dc6748a03d54d023f91eac2276606/anki-26.9.2-cp310-abi3-macosx_12_0_arm64.whl", hash = "sha256:a29f9df136dadf047e8fbceb0e2b5d38f203c21b1916f492d0701c8a503f597f", size = 9202360, upload-time = "2026-09-15T21:21:30.706Z" },
+    { url = "https://files.pythonhosted.org/packages/f7/b5/e0069533f1a3f779519bb905546e0706f5ae4a912a114c520e8ea5d98e3f/anki-26.9.2-cp310-abi3-macosx_12_0_x86_64.whl", hash = "sha256:18e686a143e60a28e9a7b200d06c673b4ae838caf83a8e6f6983dd007b7741fc", size = 9621201, upload-time = "2026-09-15T21:21:32.991Z" },
+    { url = "https://files.pythonhosted.org/packages/0d/1a/24a691862dac680a2e787a281127f9d1589138049cf463625ca53848efb3/anki-26.9.2-cp310-abi3-manylinux_2_35_aarch64.whl", hash = "sha256:b1ab9a093412593ef10be36ce6bf2309f65ad14c83256fd6e6a68217f932a840", size = 10499248, upload-time = "2026-09-15T21:21:35.437Z" },
+    { url = "https://files.pythonhosted.org/packages/99/a1/b351db3b5f94764f29cc9813a26dab1e729a5ec0e7bf8bce065bdea79ec4/anki-26.9.2-cp310-abi3-manylinux_2_35_x86_64.whl", hash = "sha256:63f792964e1a7bd6a9a4f4a0603469587ef1a61c3d2d49ff3eb7812e5b8c1a08", size = 10795499, upload-time = "2026-09-15T21:21:37.56Z" },
+    { url = "https://files.pythonhosted.org/packages/32/9f/11926de8f7e063fd2c04f23e92684bac7c161f82c6b24e9fc78e5618c709/anki-26.9.2-cp310-abi3-win_amd64.whl", hash = "sha256:644d37401af95b47c20139486b35da0b773c6ea2674c35099eb6334041c09b66", size = 9500095, upload-time = "2026-09-15T21:21:39.713Z" },
+    { url = "https://files.pythonhosted.org/packages/87/6c/716c5e4cf48e6f161bd640df6b3cfebc4457bf21c31a13ea554809b1f753/anki-26.9.2-cp310-abi3-win_arm64.whl", hash = "sha256:671a892639db1927e3fdd4bfbee5861605c054c83c2301fa70f15a0b86447f02", size = 8973714, upload-time = "2026-09-15T21:21:41.944Z" },
 ]
 
 [[package]]
@@ -63,7 +63,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "anki", specifier = ">=26.5" },
+    { name = "anki", specifier = "==26.9.2" },
     { name = "fastapi", specifier = ">=0.139.2" },
     { name = "fastmcp", specifier = ">=3.4.4" },
     { name = "pydantic", specifier = ">=2.13.4" },
