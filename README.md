@@ -195,6 +195,17 @@ curl -X POST http://localhost:8765/api \
   -d '{"action": "sync", "version": 6}'
 ```
 
+##### 🛡️ Fail-Closed Safe Sync Policy (`0.4.0+safe.1`)
+
+To prevent accidental data loss and database contention races, the synchronization pipeline implements a strict fail-closed safety policy:
+
+- **No Automatic Full Overwrites**: If synchronization requires `FULL_SYNC` (conflict), `FULL_DOWNLOAD` (remote-only), or `FULL_UPLOAD` (local-only), the operation immediately raises an explicit-human-direction-required `SyncError`. Automatic downloading, uploading, or replacing of the collection is completely disabled by policy to protect local and remote databases.
+- **Direct Full Download Helper Disabled**: Calling `_full_download` directly is disabled and raises `SyncError`.
+- **Sequential Collection & Media Lifecycle**: Collection synchronization is always executed with `sync_media=False`. Explicit background media synchronization (`sync_media`) is only initiated after the collection has safely resolved (`NORMAL_SYNC` or `NO_CHANGES`).
+- **Strict Media Status Polling**: Media status polling errors and backend error fields immediately abort media synchronization and raise `SyncError` instead of falsely reporting success.
+- **Bounded Abort and Idle Proof**: Media timeout or errors trigger `abort_media_sync()` and boundedly verify that media has reached inactive status before attempting any collection reopen. If idle cannot be confirmed, the collection is NOT closed or reopened, preventing database contention.
+- **Active-Media Preflight**: All synchronization operations preflight that background media synchronization is idle prior to authenticating or synchronizing.
+
 #### Batch Multiple Actions
 
 ```bash

@@ -4,12 +4,17 @@ All notable changes to this project are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.0+safe.1] - 2026-10-17
 
-### Added
-- `updateNote` action and `update_note` MCP tool: update the fields and/or
-  tags of an existing note in one call (fields are patched, tags replace the
-  existing set; at least one of the two is required, mirroring upstream).
+### Fixed
+- **Fail-Closed Safe Sync Policy**:
+  - `sync_collection` now explicitly calls Anki backend with `sync_media=False` to prevent background media sync from racing collection resolution.
+  - Fail-closed handling for all full sync conditions: `FULL_SYNC`, `FULL_DOWNLOAD`, and `FULL_UPLOAD` now raise a clear `SyncError` indicating that explicit human direction is required; automatic full download/upload and collection replacement are completely disabled by policy to prevent accidental data loss.
+  - Direct `_full_download` helper is disabled by safety policy.
+  - Explicit media sync lifecycle: background media sync (`sync_media`) is only initiated after collection sync successfully resolves with `NORMAL_SYNC` or `NO_CHANGES`. The server awaits inactive media status before refreshing and reopening the collection handle.
+  - Strict media status checking: `_wait_for_media` raises `SyncError` on status polling exceptions (fixing upstream bug where errors were caught and treated as success) and checks backend media error fields.
+  - Bounded abort and idle verification: timeouts or media errors trigger `abort_media_sync()` and boundedly await inactive status before any collection close/reopen. If idle cannot be confirmed, the collection is NOT closed or reopened (fail-closed).
+  - Active-media preflight: subsequent sync attempts reject immediately if media is still active or unconfirmed.
 
 ## [0.4.0] - 2026-09-27
 
