@@ -5,6 +5,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from anki.collection import Collection
 
 from anki_connect_server.anki_wrapper import AnkiWrapper
 
@@ -21,6 +22,20 @@ def isolate_test_working_directory(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     """
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("ANKICONNECT_COLLECTION_PATH", str(tmp_path / "fake.anki2"))
+
+
+@pytest.fixture(autouse=True)
+def forbid_real_ankiweb_login(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test may ever reach AnkiWeb: a real Collection must fail loudly on login.
+
+    Tests exercising sync mock the collection (or patch ``sync_login`` on the
+    instance, which takes precedence over this class-level guard).
+    """
+
+    def refuse(*args: object, **kwargs: object) -> None:
+        raise AssertionError("tests must not contact AnkiWeb; mock Collection.sync_login")
+
+    monkeypatch.setattr(Collection, "sync_login", refuse)
 
 
 @pytest.fixture

@@ -1,9 +1,10 @@
 import atexit
+import hmac
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -17,6 +18,18 @@ logger = logging.getLogger(__name__)
 # Requests at this version or below receive the bare result with no envelope
 # (see https://foosoft.net/projects/anki-connect/).
 LEGACY_VERSION = 4
+
+
+HEALTH_PATH = "/health"
+
+
+def _bearer_token_matches(authorization: str | None, expected: str) -> bool:
+    if authorization is None:
+        return False
+    scheme, _, presented = authorization.partition(" ")
+    if scheme.lower() != "bearer":
+        return False
+    return hmac.compare_digest(presented.encode(), expected.encode())
 
 
 def create_anki_wrapper(config: Config | None = None) -> AnkiWrapper:
@@ -64,7 +77,28 @@ def get_request_wrapper(request: Request) -> AnkiWrapper:
     return wrapper
 
 
-@app.get("/health")
+@app.middleware("http")
+async def require_api_token(request: Request, call_next: Callable[[Request], Awaitable[Response]]):
+    """Gate everything except /health behind ANKICONNECT_API_TOKEN when it is set.
+
+    Runs before routing and body parsing so an unauthenticated caller learns
+    nothing about the schema; unset keeps the legacy unauthenticated behaviour.
+    """
+    expected = get_config().API_TOKEN
+    if (
+        expected is None
+        or request.url.path == HEALTH_PATH
+        or _bearer_token_matches(request.headers.get("authorization"), expected)
+    ):
+        return await call_next(request)
+    return JSONResponse(
+        status_code=401,
+        content={"result": None, "error": "Unauthorized"},
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+@app.get(HEALTH_PATH)
 async def health() -> dict[str, str]:
     return {"status": "healthy"}
 
