@@ -43,6 +43,15 @@ Set environment variables before running the server:
 | `ANKICONNECT_ANKIWEB_USER` | No | - | AnkiWeb username (required for sync) |
 | `ANKICONNECT_ANKIWEB_PASS` | No | - | AnkiWeb password (required for sync) |
 | `ANKICONNECT_ANKIWEB_URL` | No | - | Custom sync server URL (optional) |
+| `ANKICONNECT_API_TOKEN` | No | unset | When set, all routes except `GET /health` require `Authorization: Bearer <token>`; blank is a startup error |
+| `ANKICONNECT_ALLOW_REQUEST_CREDENTIALS` | No | `true` | `false` refuses `username`/`password`/`endpoint` overrides on `sync`, `syncStatus`, `syncMedia` |
+| `ANKICONNECT_ALLOW_SERVER_PATHS` | No | `true` | `false` refuses `storeMediaFile` `url`/`path` and `importPackage`/`exportPackage` |
+| `ANKICONNECT_REQUIRE_COLLECTION_PATH` | No | `false` | `true` requires an absolute `ANKICONNECT_COLLECTION_PATH` (no random temp collection) |
+
+The last four settings are optional instance hardening. Their defaults keep the legacy
+behaviour; a locked-down second instance sets all four (token set, both `ALLOW_*` `false`,
+`REQUIRE_COLLECTION_PATH` `true`). Refusals are reported as normal AnkiConnect error
+envelopes, except a missing or wrong token, which is HTTP 401.
 
 ### Example `.env` File
 

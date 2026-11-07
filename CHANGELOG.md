@@ -4,6 +4,38 @@ All notable changes to this project are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0+safe.3] - 2026-11-07
+
+### Added
+- **Optional instance hardening** (all defaults are legacy-compatible; with none of
+  these set the server behaves exactly like `0.4.0+safe.2`):
+  - `ANKICONNECT_API_TOKEN`: when set, every route except `GET /health` requires
+    `Authorization: Bearer <token>` (constant-time comparison; missing or wrong gives
+    HTTP 401). The check runs before routing and body parsing. A set-but-blank token is a
+    startup error, never "authentication disabled". The token is never logged or echoed.
+  - `ANKICONNECT_ALLOW_REQUEST_CREDENTIALS` (default `true`): when `false`, `sync`,
+    `syncStatus` and `syncMedia` refuse per-request `username`/`password`/`endpoint`
+    overrides, including inside `multi` and nested `multi`. The environment-configured
+    AnkiWeb account is unaffected.
+  - `ANKICONNECT_ALLOW_SERVER_PATHS` (default `true`): when `false`, `storeMediaFile`
+    refuses `url` and `path` (even alongside `data`), and `importPackage` and
+    `exportPackage` are refused. Enforced in `AnkiWrapper`, so `multi` and the MCP tools
+    cannot bypass it.
+  - `ANKICONNECT_REQUIRE_COLLECTION_PATH` (default `false`): when `true`, a blank,
+    relative, NUL-containing or `..`-containing `ANKICONNECT_COLLECTION_PATH` refuses
+    startup instead of falling back to a random temp collection.
+- Configuration validation errors no longer echo the full settings input (which could
+  contain `ANKICONNECT_API_TOKEN` or `ANKICONNECT_ANKIWEB_PASS`).
+
+### Changed
+- Test suite: an autouse guard makes any real `Collection.sync_login` fail, so tests can
+  never contact AnkiWeb.
+
+### Unchanged (verified by tests under the hardened profile)
+- `FULL_SYNC`, `FULL_DOWNLOAD` and `FULL_UPLOAD` remain refused; media completion is
+  still awaited; sync results are still serialized as JSON objects, including inside
+  `multi`.
+
 ## [0.4.0+safe.2] - 2026-10-17
 
 ### Fixed

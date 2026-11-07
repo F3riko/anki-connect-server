@@ -23,6 +23,11 @@ from anki.sync_pb2 import MediaSyncStatusResponse, SyncCollectionResponse
 from httpx import Client, HTTPError
 
 from anki_connect_server.config import get_config
+from anki_connect_server.policy import (
+    reject_request_credentials,
+    reject_server_media_sources,
+    reject_server_package_action,
+)
 from anki_connect_server.sync import (
     CollectionSyncOutcome,
     CollectionSyncResult,
@@ -269,6 +274,7 @@ class AnkiWrapper:
         timeout: float = 300.0,
         poll_interval: float = 0.1,
     ) -> SyncResult:
+        reject_request_credentials(username, password, endpoint)
         if not self._sync_lock.acquire(blocking=False):
             raise SyncError("A synchronization is already in progress")
         try:
@@ -1022,6 +1028,7 @@ class AnkiWrapper:
         Mirrors upstream Anki-Connect: exactly one source must be provided,
         with data taking precedence over url and path.
         """
+        reject_server_media_sources(url, path)
         if data:
             file_data = base64.b64decode(data)
         elif url:
@@ -1081,9 +1088,11 @@ class AnkiWrapper:
         self.col.media.trash_files([self._sanitize_media_filename(filename)])
 
     def import_package(self, path: str) -> JsonObject:
+        reject_server_package_action("importPackage")
         return cast(JsonObject, self.col.import_anki_package(path))  # type: ignore[call-arg]
 
     def export_package(self, deck: str, path: str, include_sched: bool = False) -> None:
+        reject_server_package_action("exportPackage")
         deck_id = cast(DeckId, self.col.decks.id(deck))
         self.col.export_anki_package(path, deck_id, include_sched)  # type: ignore[call-arg]
 
@@ -1093,6 +1102,7 @@ class AnkiWrapper:
         password: str | None = None,
         endpoint: str | None = None,
     ) -> JsonObject:
+        reject_request_credentials(username, password, endpoint)
         cfg = get_config()
         user = username or cfg.ANKIWEB_USER
         pass_ = password or cfg.ANKIWEB_PASS
@@ -1126,6 +1136,7 @@ class AnkiWrapper:
         poll_interval: float = 0.1,
     ) -> MediaSyncResult:
         """Run only the media sync (not the collection) and wait for completion."""
+        reject_request_credentials(username, password, endpoint)
         user, pass_, url = self._credentials(username, password, endpoint, operation="media sync")
 
         if not self._sync_lock.acquire(blocking=False):

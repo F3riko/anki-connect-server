@@ -1,5 +1,15 @@
 """Tests for config module."""
 
+import pytest
+from pydantic import ValidationError
+
+from anki_connect_server.config import Config
+
+
+def _config(**values: object) -> Config:
+    """Build a Config from explicit values only (no .env file)."""
+    return Config(**values, _env_file=None)  # type: ignore[call-arg]
+
 
 def test_config_defaults():
     """Test that config has correct defaults."""
@@ -104,3 +114,81 @@ def test_config_accepts_extensionless_path():
 
     cfg = Config(COLLECTION_PATH="/data/anki_db")
     assert cfg.COLLECTION_PATH == "/data/anki_db"
+
+
+def test_hardening_flags_default_to_legacy_compatible_values():
+    """Flags-off means exactly these defaults: Andrew's instance must behave
+    identically when none of the four hardening settings are configured."""
+    cfg = _config(COLLECTION_PATH="/test/path.anki2")
+    assert cfg.API_TOKEN is None
+    assert cfg.ALLOW_REQUEST_CREDENTIALS is True
+    assert cfg.ALLOW_SERVER_PATHS is True
+    assert cfg.REQUIRE_COLLECTION_PATH is False
+
+
+def test_hardening_flags_load_from_env(monkeypatch):
+    monkeypatch.setenv("ANKICONNECT_COLLECTION_PATH", "/var/lib/x/collection.anki2")
+    monkeypatch.setenv("ANKICONNECT_API_TOKEN", "s3cret-token")
+    monkeypatch.setenv("ANKICONNECT_ALLOW_REQUEST_CREDENTIALS", "false")
+    monkeypatch.setenv("ANKICONNECT_ALLOW_SERVER_PATHS", "false")
+    monkeypatch.setenv("ANKICONNECT_REQUIRE_COLLECTION_PATH", "true")
+
+    cfg = _config()
+    assert cfg.API_TOKEN == "s3cret-token"
+    assert cfg.ALLOW_REQUEST_CREDENTIALS is False
+    assert cfg.ALLOW_SERVER_PATHS is False
+    assert cfg.REQUIRE_COLLECTION_PATH is True
+
+
+@pytest.mark.parametrize(
+    "bad_path",
+    ["", "   ", "collection.anki2", "./collection.anki2", "relative/dir/collection.anki2"],
+)
+def test_require_collection_path_rejects_blank_or_relative(bad_path):
+    """With the flag on, a blank or relative path must fail startup instead of
+    silently becoming a random temp collection or a CWD-relative file."""
+    with pytest.raises(ValidationError, match="COLLECTION_PATH"):
+        _config(COLLECTION_PATH=bad_path, REQUIRE_COLLECTION_PATH=True)
+
+
+@pytest.mark.parametrize(
+    "bad_path",
+    ["/var/lib/anki/../../etc/collection.anki2", "/var/lib/anki/..", "/var/lib/a\x00b.anki2"],
+)
+def test_require_collection_path_rejects_unsafe_absolute_paths(bad_path):
+    with pytest.raises(ValidationError, match="COLLECTION_PATH"):
+        _config(COLLECTION_PATH=bad_path, REQUIRE_COLLECTION_PATH=True)
+
+
+def test_require_collection_path_accepts_absolute_path_unchanged():
+    cfg = _config(
+        COLLECTION_PATH="/var/lib/anki-connect/t2/collection.anki2",
+        REQUIRE_COLLECTION_PATH=True,
+    )
+    assert cfg.COLLECTION_PATH == "/var/lib/anki-connect/t2/collection.anki2"
+
+
+def test_require_collection_path_never_falls_back_to_temp_collection(monkeypatch):
+    """Missing env var with the flag on is a startup error, not a temp file."""
+    monkeypatch.delenv("ANKICONNECT_COLLECTION_PATH", raising=False)
+    monkeypatch.setenv("ANKICONNECT_REQUIRE_COLLECTION_PATH", "true")
+
+    with pytest.raises(ValidationError, match="COLLECTION_PATH"):
+        _config()
+
+
+def test_validation_errors_do_not_echo_the_rejected_input():
+    """pydantic prints input_value by default; configuration errors must not put
+    raw setting values (a token, a path under a secret dir) into logs."""
+    with pytest.raises(ValidationError) as excinfo:
+        _config(COLLECTION_PATH="/x/../tok-DO-NOT-LEAK", REQUIRE_COLLECTION_PATH=True)
+    rendered = str(excinfo.value) + repr(excinfo.value)
+    assert "input_value" not in rendered
+    assert "tok-DO-NOT-LEAK" not in rendered
+
+
+@pytest.mark.parametrize("blank_token", ["", "   ", "\t"])
+def test_blank_api_token_is_a_startup_error_not_disabled_auth(blank_token):
+    """A set-but-empty token must never silently mean 'no authentication'."""
+    with pytest.raises(ValidationError, match="API_TOKEN"):
+        _config(COLLECTION_PATH="/test/path.anki2", API_TOKEN=blank_token)
