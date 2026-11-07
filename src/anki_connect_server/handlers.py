@@ -327,6 +327,8 @@ async def handle_multi(wrapper: AnkiWrapper, params: MultiParams) -> list[Any]:
             result = handler(wrapper, validated)
             if asyncio.iscoroutine(result):
                 result = await result
+            if isinstance(result, BaseModel):
+                result = result.model_dump(mode="json")
             results.append(result)
         except Exception as e:
             # Per-action failure does not abort the whole multi call.
@@ -405,4 +407,6 @@ async def dispatch(action: str, params: JsonObject, wrapper: AnkiWrapper) -> Any
     result = handler(wrapper, validated)
     if asyncio.iscoroutine(result):
         result = await result
+    if isinstance(result, BaseModel):
+        result = result.model_dump(mode="json")
     return result

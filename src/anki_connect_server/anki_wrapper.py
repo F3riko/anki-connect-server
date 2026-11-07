@@ -3,6 +3,7 @@
 # anki.cards first triggers a circular import (anki.hooks -> anki.hooks_gen ->
 # anki.cards.Card while anki.cards is still initialising).
 import base64
+import contextlib
 import hashlib
 import logging
 import re
@@ -25,7 +26,6 @@ from anki_connect_server.config import get_config
 from anki_connect_server.sync import (
     CollectionSyncOutcome,
     CollectionSyncResult,
-    DownloadReason,
     MediaSyncResult,
     SyncError,
     SyncResult,
@@ -45,6 +45,7 @@ class AnkiWrapper:
         self._closed = False
         self._collection_generation = 0
         self._sync_lock = threading.Lock()
+        self._media_unproven_idle = False
 
     @property
     def collection_generation(self) -> int:
@@ -104,32 +105,88 @@ class AnkiWrapper:
             progress(message)
 
     def _full_download(self, auth: Any, server_usn: int) -> None:
-        self.col.close_for_full_sync()
-        self._closed = True
-        try:
-            self.col.full_upload_or_download(auth=auth, server_usn=server_usn, upload=False)
-            # The backend reopens the collection internally after a full
-            # download, but the Python-side db handle is still None. Reattach
-            # it with reopen(after_full_sync=True) instead of constructing a
-            # new Collection (which would error with "Anki already open").
-            self.col.reopen(after_full_sync=True)
-            self._closed = False
-            self._collection_generation += 1
-            logger.debug(
-                "Reattached Anki collection at %s after full download",
-                self.collection_path,
-            )
-        finally:
-            if self._closed:
-                # Download failed; the backend collection is closed, so fall
-                # back to opening a fresh handle.
-                self._reopen_collection()
+        raise SyncError(
+            "Automatic full download is disabled by fail-closed safety policy; "
+            "explicit human direction is required"
+        )
 
     @staticmethod
     def _media_counters(status: MediaSyncStatusResponse) -> tuple[str, str, str]:
         if not status.HasField("progress"):
             return "", "", ""
         return status.progress.checked, status.progress.added, status.progress.removed
+
+    @staticmethod
+    def _get_media_error(status: Any) -> str | None:
+        """Check if status response contains an error field."""
+        if hasattr(status, "error"):
+            err = status.error
+            if err:
+                return str(err)
+        if hasattr(status, "HasField"):
+            with contextlib.suppress(Exception):
+                if status.HasField("error"):
+                    return str(status.error)
+        return None
+
+    def _abort_and_await_media_inactive(
+        self,
+        *,
+        abort_timeout: float = 2.0,
+        poll_interval: float = 0.05,
+    ) -> bool:
+        """Best-effort abort and bounded wait for media synchronization to become inactive.
+
+        Returns True if media sync is confirmed inactive (idle); False otherwise.
+        """
+        try:
+            self.col.abort_media_sync()
+        except Exception:
+            logger.exception("Failed to abort media sync")
+
+        deadline = time.monotonic() + abort_timeout
+        while time.monotonic() < deadline:
+            with contextlib.suppress(Exception):
+                status = self.col.media_sync_status()
+                if not getattr(status, "active", False):
+                    self._media_unproven_idle = False
+                    return True
+            time.sleep(poll_interval)
+
+        self._media_unproven_idle = True
+        return False
+
+    def _preflight_media_idle(self) -> None:
+        """Verify that background media sync is not active before starting sync.
+
+        Fails closed if media is active, if status cannot be checked, or if
+        a previous media operation failed to prove idle.
+        """
+        if self._media_unproven_idle:
+            try:
+                status = self.col.media_sync_status()
+                if getattr(status, "active", False):
+                    raise SyncError(
+                        "Media synchronization is currently active or unconfirmed; "
+                        "cannot start synchronization"
+                    )
+                self._media_unproven_idle = False
+            except SyncError:
+                raise
+            except Exception as error:
+                raise SyncError(
+                    f"Media synchronization state is unconfirmed or still active: {error}"
+                ) from error
+
+        try:
+            status = self.col.media_sync_status()
+        except Exception as error:
+            raise SyncError(
+                f"Cannot verify media synchronization state before sync: {error}"
+            ) from error
+
+        if getattr(status, "active", False):
+            raise SyncError("Media synchronization is currently active")
 
     def _wait_for_media(
         self,
@@ -140,19 +197,49 @@ class AnkiWrapper:
     ) -> MediaSyncResult:
         """Wait for the background media sync to finish and report counters.
 
-        Anki's sync_media() returns immediately after starting the sync; without
-        waiting we falsely report completion. Poll media_sync_status() until it
-        reports inactive, relaying progress counters to the callback.
+        Poll media_sync_status() until it reports inactive, relaying progress
+        counters to the callback. Fails closed if media sync errors, reports a
+        backend error, or times out.
         """
         self._report(progress, "Synchronizing media")
         deadline = time.monotonic() + timeout
         latest: tuple[str, str, str] | None = None
+        abort_wait = min(2.0, timeout)
         while True:
+            if time.monotonic() >= deadline:
+                logger.warning("media sync timed out after %ss; aborting", timeout)
+                self._abort_and_await_media_inactive(
+                    abort_timeout=abort_wait,
+                    poll_interval=poll_interval,
+                )
+                raise SyncError(f"media sync timed out after {timeout}s")
+
             try:
                 status = self.col.media_sync_status()
             except Exception as e:
-                logger.warning(f"media_sync_status poll failed: {type(e).__name__}: {e}")
-                return MediaSyncResult()
+                logger.warning(
+                    "media_sync_status poll failed: %s: %s; aborting and awaiting inactive",
+                    type(e).__name__,
+                    e,
+                )
+                self._abort_and_await_media_inactive(
+                    abort_timeout=abort_wait,
+                    poll_interval=poll_interval,
+                )
+                raise SyncError(f"Media synchronization status poll failed: {e}") from e
+
+            media_err = self._get_media_error(status)
+            if media_err:
+                logger.warning(
+                    "media_sync_status reported error: %s; aborting and awaiting inactive",
+                    media_err,
+                )
+                self._abort_and_await_media_inactive(
+                    abort_timeout=abort_wait,
+                    poll_interval=poll_interval,
+                )
+                raise SyncError(f"Media synchronization failed with backend error: {media_err}")
+
             counters = self._media_counters(status)
             if counters != latest and any(counters):
                 checked, added, removed = counters
@@ -162,15 +249,14 @@ class AnkiWrapper:
                     f"added {added or '0'}, removed {removed or '0'}",
                 )
                 latest = counters
-            if not status.active:
+
+            if not getattr(status, "active", False):
                 return MediaSyncResult(
                     checked=counters[0] or None,
                     added=counters[1] or None,
                     removed=counters[2] or None,
                 )
-            if time.monotonic() >= deadline:
-                self.abort_sync()
-                raise SyncError(f"media sync timed out after {timeout}s")
+
             time.sleep(poll_interval)
 
     def sync_to_ankiweb(
@@ -180,10 +266,14 @@ class AnkiWrapper:
         endpoint: str | None = None,
         *,
         progress: SyncProgressCallback | None = None,
+        timeout: float = 300.0,
+        poll_interval: float = 0.1,
     ) -> SyncResult:
         if not self._sync_lock.acquire(blocking=False):
             raise SyncError("A synchronization is already in progress")
         try:
+            self._preflight_media_idle()
+
             user, pass_, url = self._credentials(username, password, endpoint, operation="sync")
             self._report(progress, "Authenticating with AnkiWeb")
             try:
@@ -193,77 +283,80 @@ class AnkiWrapper:
 
             self._report(progress, "Synchronizing collection")
             try:
-                result = self.col.sync_collection(auth, sync_media=True)
+                result = self.col.sync_collection(auth, sync_media=False)
             except Exception as error:
                 self.close()
                 self._reopen_collection()
                 raise SyncError(f"Collection synchronization failed: {error}") from error
 
-            # Honor a sync endpoint redirect before any full download.
+            # Honor a sync endpoint redirect before media sync.
             if result.new_endpoint:
                 auth.endpoint = result.new_endpoint
 
-            needs_reopen = False
-            if result.required in (
-                SyncCollectionResponse.FULL_SYNC,
-                SyncCollectionResponse.FULL_DOWNLOAD,
-            ):
-                reason = (
-                    DownloadReason.CONFLICT
-                    if result.required == SyncCollectionResponse.FULL_SYNC
-                    else DownloadReason.REMOTE_ONLY
-                )
-                self._report(
-                    progress,
-                    "Downloading the AnkiWeb collection to resolve a conflict"
-                    if reason is DownloadReason.CONFLICT
-                    else "Downloading the AnkiWeb collection",
-                )
-                try:
-                    self._full_download(auth, result.server_media_usn)
-                except Exception as error:
-                    raise SyncError(f"Full collection download failed: {error}") from error
-                collection = CollectionSyncResult(
-                    outcome=CollectionSyncOutcome.DOWNLOADED,
-                    download_reason=reason,
-                    local_data_replaced=True,
-                )
-            elif result.required == SyncCollectionResponse.FULL_UPLOAD:
-                # Full uploads are disabled by policy: the AnkiWeb collection is
-                # empty and only a full upload would populate it, which would
-                # destroy any remote data the user has. Preserve the local
-                # collection and surface a clear error so the user can decide.
+            if result.required == SyncCollectionResponse.FULL_SYNC:
                 raise SyncError(
-                    "AnkiWeb collection is empty and only a full upload is possible; "
-                    "full uploads are disabled by policy and the local collection "
-                    "was preserved"
+                    "Full sync required (conflict): explicit human direction required; "
+                    "automatic full sync is disabled by policy to prevent data loss"
                 )
-            elif result.required == SyncCollectionResponse.NORMAL_SYNC:
+            if result.required == SyncCollectionResponse.FULL_DOWNLOAD:
+                raise SyncError(
+                    "Full download required (remote only): explicit human direction required; "
+                    "automatic full download is disabled by policy to prevent data loss"
+                )
+            if result.required == SyncCollectionResponse.FULL_UPLOAD:
+                raise SyncError(
+                    "Full upload required (local only): explicit human direction required; "
+                    "automatic full upload is disabled by policy to prevent data loss"
+                )
+            if result.required == SyncCollectionResponse.NORMAL_SYNC:
                 collection = CollectionSyncResult(
                     outcome=CollectionSyncOutcome.MERGED,
                     local_data_replaced=False,
                 )
-                needs_reopen = True
             elif result.required == SyncCollectionResponse.NO_CHANGES:
                 collection = CollectionSyncResult(
                     outcome=CollectionSyncOutcome.NO_CHANGES,
                     local_data_replaced=False,
                 )
-                needs_reopen = True
             else:
-                raise SyncError(f"Unsupported synchronization requirement: {result.required}")
+                raise SyncError(
+                    f"Unsupported synchronization requirement: {result.required}; "
+                    "explicit human direction required"
+                )
+
+            # Only after normal/nochanges start explicit sync_media(auth), await inactive,
+            # then reopen with correct Anki lifecycle.
+            self._report(progress, "Starting media synchronization")
+            try:
+                self.col.sync_media(auth)
+            except Exception as error:
+                idle_proven = self._abort_and_await_media_inactive(
+                    abort_timeout=min(2.0, timeout),
+                    poll_interval=poll_interval,
+                )
+                if idle_proven:
+                    self.close()
+                    self._reopen_collection()
+                raise SyncError(f"Failed to start media synchronization: {error}") from error
 
             try:
-                media = self._wait_for_media(progress)
+                media = self._wait_for_media(
+                    progress,
+                    timeout=timeout,
+                    poll_interval=poll_interval,
+                )
             except Exception as error:
+                if not self._media_unproven_idle:
+                    self.close()
+                    self._reopen_collection()
                 raise SyncError(
                     "Media synchronization failed after collection synchronization "
                     f"completed; media remains incomplete: {error}"
                 ) from error
-            finally:
-                if needs_reopen:
-                    self.close()
-                    self._reopen_collection()
+
+            # Media sync completed and inactive; refresh collection handle.
+            self.close()
+            self._reopen_collection()
 
             self._report(progress, "Synchronization completed")
             logger.info(
@@ -278,7 +371,7 @@ class AnkiWrapper:
             )
         except Exception:
             logger.exception("AnkiWeb sync failed")
-            if self._closed:
+            if self._closed and not self._media_unproven_idle:
                 self._reopen_collection()
             raise
         finally:
@@ -1038,6 +1131,7 @@ class AnkiWrapper:
         if not self._sync_lock.acquire(blocking=False):
             raise SyncError("A synchronization is already in progress")
         try:
+            self._preflight_media_idle()
             auth = self.col.sync_login(username=user, password=pass_, endpoint=url)
             self.col.sync_media(auth)
             return self._wait_for_media(progress, timeout=timeout, poll_interval=poll_interval)
